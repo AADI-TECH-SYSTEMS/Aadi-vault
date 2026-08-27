@@ -1,0 +1,26 @@
+name: Test Store Download and Installation
+
+on:
+  workflow_dispatch: # Button dabate hi manual run karne ke liye
+
+jobs:
+  test-install:
+    runs-on: windows-latest
+
+    steps:
+      - name: Search and Install App via Microsoft Store (WinGet)
+        shell: pwsh
+        run: |
+          Write-Host "Searching for Aadi vault on Microsoft Store..."
+          # Microsoft Store source se app search karna
+          winget search "Aadi vault" --source msstore
+
+          Write-Host "Attempting Store download & silent install on clean VM..."
+          # Clean VM par download aur silent installation execute karna
+          winget install --name "Aadi vault" --source msstore --accept-source-agreements --accept-package-agreements
+
+      - name: Verify Installation Status
+        shell: pwsh
+        run: |
+          Write-Host "Checking if package installed successfully..."
+          winget list "Aadi vault"
