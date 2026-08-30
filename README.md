@@ -57,4 +57,5 @@ Please read this section carefully before using the software:
 ## 👤 About the Developer
 **Aditya Rai** *Founder, Aadi-Tech* Developing lightweight, secure, and privacy-focused tools for the modern era.
 
-adi
+
+Official Website: [Kyxgo Technology](https://sites.google.com/view/kyxgo/technology/)
