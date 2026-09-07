@@ -65,13 +65,14 @@ jobs:
 
           & pyinstaller $pyArgs
 
-      - name: Prepare Layout and Assets
+      - name: Auto Generate Package Assets and Layout
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path msix_layout\Assets
           New-Item -ItemType Directory -Force -Path public
           Copy-Item -Path "dist\app.exe" -Destination "msix_layout\AadiVault.exe"
 
+          # GitHub cloud server khud Microsoft Store ke liye required PNGs create karega
           Add-Type -AssemblyName System.Drawing
           $files = @(
               @{ Name = "Square44x44Logo.png"; W = 44; H = 44 },
@@ -141,14 +142,14 @@ jobs:
           $makeappx = (Get-ChildItem -Path $tools -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
           $signtool = (Get-ChildItem -Path $tools -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
 
-          # 1. Generate PRI File for Store compliance
+          # 1. PRI Index banata hai taaki language/images missing na bataye
           & $makepri createconfig /cf "priconfig.xml" /dq "en-US" /pv "10.0.0" /o
           & $makepri new /pr "msix_layout" /cf "priconfig.xml" /of "msix_layout\resources.pri" /o
 
-          # 2. Pack MSIX
+          # 2. Package assemble karta hai
           & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /o
 
-          # 3. Create Certificate matching exact Publisher ID and Sign
+          # 3. Exactly match Publisher ID se digital sign karta hai
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=C9168D4F-DEA6-4223-BE96-9AB236F7A022" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
           $pass = ConvertTo-SecureString -String "KyxgoVault2026" -Force -AsPlainText
           Export-PfxCertificate -Cert $cert -FilePath "cert.pfx" -Password $pass
