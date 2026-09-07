@@ -1,4 +1,4 @@
-name: Build, Sign and Deploy Aadi-vault MSIX
+name: Build and Sign MSIX
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: false
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -40,152 +40,116 @@ jobs:
       - name: Build Executable
         shell: pwsh
         run: |
-          $addTemplateArg = ""
-          if (Test-Path "templates") {
-              $addTemplateArg = '--add-data "templates;templates"'
-          }
+          $addTemplate = ""
+          if (Test-Path "templates") { $addTemplate = '--add-data "templates;templates"' }
+          $icon = ""
+          if (Test-Path "icon.ico") { $icon = '--icon="icon.ico"' }
+          pyinstaller --noconfirm --onefile --windowed $icon --collect-all Crypto --collect-all flask --hidden-import=Crypto --hidden-import=Crypto.Cipher.AES --hidden-import=Crypto.Random --hidden-import=Crypto.Util.Padding $addTemplate --name app app.py
 
-          $iconArg = ""
-          if (Test-Path "icon.ico") {
-              $iconArg = '--icon="icon.ico"'
-          }
-
-          $cmd = "pyinstaller --noconfirm --onefile --windowed " +
-                 "$iconArg " +
-                 "--collect-all Crypto " +
-                 "--collect-all flask " +
-                 "--hidden-import=Crypto " +
-                 "--hidden-import=Crypto.Cipher.AES " +
-                 "--hidden-import=Crypto.Random " +
-                 "--hidden-import=Crypto.Util.Padding " +
-                 "$addTemplateArg " +
-                 "--name app app.py"
-
-          Invoke-Expression $cmd
-
-      - name: Assemble MSIX Package Directory
+      - name: Prepare Layout and Assets
         shell: pwsh
         run: |
-          # 1. Directories Setup
-          New-Item -ItemType Directory -Force -Path msix_layout
           New-Item -ItemType Directory -Force -Path msix_layout\Assets
           New-Item -ItemType Directory -Force -Path public
-
-          # 2. Copy Executable
           Copy-Item -Path "dist\app.exe" -Destination "msix_layout\AadiVault.exe"
 
-          # 3. Create Valid Bitmaps with all scale variations required by Store
           Add-Type -AssemblyName System.Drawing
-          $assets = @(
-              @{ Name = "Square44x44Logo.png"; W = 44; H = 44 },
-              @{ Name = "Square44x44Logo.targetsize-44.png"; W = 44; H = 44 },
-              @{ Name = "Square150x150Logo.png"; W = 150; H = 150 },
-              @{ Name = "Square150x150Logo.scale-100.png"; W = 150; H = 150 },
-              @{ Name = "StoreLogo.png"; W = 50; H = 50 },
-              @{ Name = "StoreLogo.scale-100.png"; W = 50; H = 50 }
-          )
-
-          foreach ($item in $assets) {
-              $bmp = New-Object System.Drawing.Bitmap $item.W, $item.H
-              $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-              $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(30, 41, 59))
-              $gfx.FillRectangle($brush, 0, 0, $item.W, $item.H)
-              $filePath = Join-Path "msix_layout\Assets" $item.Name
-              $bmp.Save($filePath, [System.Drawing.Imaging.ImageFormat]::Png)
-              $gfx.Dispose()
+          $sizes = @(44, 50, 150)
+          foreach ($s in $sizes) {
+              $bmp = New-Object System.Drawing.Bitmap $s, $s
+              $g = [System.Drawing.Graphics]::FromImage($bmp)
+              $b = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(24, 24, 27))
+              $g.FillRectangle($b, 0, 0, $s, $s)
+              
+              if ($s -eq 44) { 
+                  $bmp.Save("msix_layout\Assets\Square44x44Logo.png", [System.Drawing.Imaging.ImageFormat]::Png)
+                  $bmp.Save("msix_layout\Assets\Square44x44Logo.targetsize-44.png", [System.Drawing.Imaging.ImageFormat]::Png)
+              }
+              if ($s -eq 50) { 
+                  $bmp.Save("msix_layout\Assets\StoreLogo.png", [System.Drawing.Imaging.ImageFormat]::Png)
+              }
+              if ($s -eq 150) { 
+                  $bmp.Save("msix_layout\Assets\Square150x150Logo.png", [System.Drawing.Imaging.ImageFormat]::Png)
+              }
+              $g.Dispose()
               $bmp.Dispose()
           }
 
-          # 4. Write AppxManifest directly with exact UTF-8 (No BOM issues)
-          $xml = @"
-<?xml version="1.0" encoding="utf-8"?>
-<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
-  <Identity Name="AdityaRaikyxgo.AadiVaultprime"
-            Publisher="CN=C916BD4F-DEA6-4223-BE96-9AB236F7A022"
-            Version="1.0.0.0"
-            ProcessorArchitecture="x64" />
-  <Properties>
-    <DisplayName>Aadi-vault</DisplayName>
-    <PublisherDisplayName>Aditya Rai (kyxgo)</PublisherDisplayName>
-    <Logo>Assets\StoreLogo.png</Logo>
-  </Properties>
-  <Resources>
-    <Resource Language="en-us" />
-  </Resources>
-  <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
-  </Dependencies>
-  <Applications>
-    <Application Id="App" Executable="AadiVault.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="Aadi-vault"
-                          Description="Aadi-vault Application"
-                          BackgroundColor="transparent"
-                          Square150x150Logo="Assets\Square150x150Logo.png"
-                          Square44x44Logo="Assets\Square44x44Logo.png">
-      </uap:VisualElements>
-    </Application>
-  </Applications>
-  <Capabilities>
-    <rescap:Capability Name="runFullTrust" />
-  </Capabilities>
-</Package>
-"@
-          $utf8 = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::WriteAllText("$PWD\msix_layout\AppxManifest.xml", $xml, $utf8)
-
-      - name: Compile and Sign MSIX Package
+      - name: Write AppxManifest
         shell: pwsh
         run: |
-          $kitsPath = "C:\Program Files (x86)\Windows Kits\10\bin"
-          $makeappx = (Get-ChildItem -Path $kitsPath -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
-          $signtool = (Get-ChildItem -Path $kitsPath -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          $xml = '<?xml version="1.0" encoding="utf-8"?>' + "`r`n" +
+          '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"' + "`r`n" +
+          '         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"' + "`r`n" +
+          '         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">' + "`r`n" +
+          '  <Identity Name="AdityaRaikyxgo.AadiVaultprime"' + "`r`n" +
+          '            Publisher="CN=C916BD4F-DEA6-4223-BE96-9AB236F7A022"' + "`r`n" +
+          '            Version="1.0.0.0"' + "`r`n" +
+          '            ProcessorArchitecture="x64" />' + "`r`n" +
+          '  <Properties>' + "`r`n" +
+          '    <DisplayName>Aadi-vault</DisplayName>' + "`r`n" +
+          '    <PublisherDisplayName>Aditya Rai (kyxgo)</PublisherDisplayName>' + "`r`n" +
+          '    <Logo>Assets\StoreLogo.png</Logo>' + "`r`n" +
+          '  </Properties>' + "`r`n" +
+          '  <Resources>' + "`r`n" +
+          '    <Resource Language="en-us" />' + "`r`n" +
+          '  </Resources>' + "`r`n" +
+          '  <Dependencies>' + "`r`n" +
+          '    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />' + "`r`n" +
+          '  </Dependencies>' + "`r`n" +
+          '  <Applications>' + "`r`n" +
+          '    <Application Id="App" Executable="AadiVault.exe" EntryPoint="Windows.FullTrustApplication">' + "`r`n" +
+          '      <uap:VisualElements DisplayName="Aadi-vault"' + "`r`n" +
+          '                          Description="Aadi-vault Application"' + "`r`n" +
+          '                          BackgroundColor="transparent"' + "`r`n" +
+          '                          Square150x150Logo="Assets\Square150x150Logo.png"' + "`r`n" +
+          '                          Square44x44Logo="Assets\Square44x44Logo.png">' + "`r`n" +
+          '      </uap:VisualElements>' + "`r`n" +
+          '    </Application>' + "`r`n" +
+          '  </Applications>' + "`r`n" +
+          '  <Capabilities>' + "`r`n" +
+          '    <rescap:Capability Name="runFullTrust" />' + "`r`n" +
+          '  </Capabilities>' + "`r`n" +
+          '</Package>'
 
-          # Pack MSIX
-          & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /o /v
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText("$PWD\msix_layout\AppxManifest.xml", $xml, $utf8NoBom)
 
-          # Generate certificate exactly matching the Publisher CN
+      - name: Build and Sign MSIX Package
+        shell: pwsh
+        run: |
+          $tools = "C:\Program Files (x86)\Windows Kits\10\bin"
+          $makeappx = (Get-ChildItem -Path $tools -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          $signtool = (Get-ChildItem -Path $tools -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+
+          & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /o
+
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=C916BD4F-DEA6-4223-BE96-9AB236F7A022" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
-          $pwd = ConvertTo-SecureString -String "KyxgoVault2026" -Force -AsPlainText
-          Export-PfxCertificate -Cert $cert -FilePath "signer.pfx" -Password $pwd
-          
-          # Sign the MSIX Package
-          & $signtool sign /f "signer.pfx" /p "KyxgoVault2026" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "public\AadiVault.msix"
+          $pass = ConvertTo-SecureString -String "KyxgoVault2026" -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath "cert.pfx" -Password $pass
 
-      - name: Prepare Download Webpage
+          & $signtool sign /f "cert.pfx" /p "KyxgoVault2026" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "public\AadiVault.msix"
+
+      - name: Create Landing Page
         shell: pwsh
         run: |
-          $html = @"
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta http-equiv="refresh" content="0; url=AadiVault.msix" />
-            <title>Downloading Aadi-vault...</title>
-          </head>
-          <body>
-            <h2>Downloading Aadi-vault Package (.msix)...</h2>
-            <p>If download doesn't start automatically, <a href="AadiVault.msix">click here to download</a>.</p>
-          </body>
-          </html>
-          "@
+          $html = '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=AadiVault.msix" /><title>Download Aadi-vault</title></head><body><h2>Downloading Aadi-vault MSIX...</h2><p>Click <a href="AadiVault.msix">here</a> if download does not start.</p></body></html>'
           Set-Content -Path "public\index.html" -Value $html
 
-      - name: Upload Build Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AadiVault-MSIX-Package
+          name: AadiVault-MSIX
           path: public\AadiVault.msix
 
-      - name: Setup Pages
+      - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload Pages Artifact
+      - name: Upload Pages Package
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
 
-      - name: Deploy to GitHub Pages
+      - name: Deploy Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        
