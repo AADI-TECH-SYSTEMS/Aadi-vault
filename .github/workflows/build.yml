@@ -1,4 +1,4 @@
-name: Build, Sign and Deploy AadiTechVault Installer
+name: Build, Sign and Deploy AadiTechVault MSIX
 
 on:
   push:
@@ -15,6 +15,12 @@ permissions:
 concurrency:
   group: "pages"
   cancel-in-progress: false
+
+env:
+  # 👉 YAHAN APNI PARTNER CENTER KI DETAILS REPLACE KARO:
+  PC_IDENTITY_NAME: "Aadi-vault"
+  PC_PUBLISHER_ID: "CN=Aditya Rai (kyxgo)"
+  PC_PUBLISHER_DISPLAY_NAME: "Aditya Rai (kyxgo)"
 
 jobs:
   build-and-deploy:
@@ -63,61 +69,83 @@ jobs:
 
           Invoke-Expression $cmd
 
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress
-
-      - name: Generate Microsoft Store Inno Script
+      - name: Prepare MSIX Package Directory
         shell: pwsh
         run: |
-          $iss = @"
-          [Setup]
-          AppName=Aadi Vault
-          AppVersion=1.0.0
-          AppPublisher=Aditya Rai (kyxgo)
-          DefaultDirName={autopf}\Aadi Vault
-          DefaultGroupName=Aadi Vault
-          UninstallDisplayIcon={app}\app.exe
-          SetupIconFile=icon.ico
-          OutputBaseFilename=AadiVault
-          OutputDir=public
-          Compression=lzma2/ultra64
-          SolidCompression=yes
-          PrivilegesRequired=lowest
-          CloseApplications=force
-          RestartIfNeededByRun=no
-          DisableDirPage=auto
-          DisableProgramGroupPage=auto
+          New-Item -ItemType Directory -Force -Path msix_layout
+          New-Item -ItemType Directory -Force -Path msix_layout\Assets
+          New-Item -ItemType Directory -Force -Path public
 
-          [Files]
-          Source: "dist\app.exe"; DestDir: "{app}"; Flags: ignoreversion
-          Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+          Copy-Item -Path "dist\app.exe" -Destination "msix_layout\AadiVault.exe"
 
-          [Icons]
-          Name: "{autoprograms}\Aadi Vault"; Filename: "{app}\app.exe"; IconFilename: "{app}\icon.ico"
-          Name: "{autodesktop}\Aadi Vault"; Filename: "{app}\app.exe"; IconFilename: "{app}\icon.ico"
+          # Basic PNG generator for MSIX manifest compliance if images don't exist
+          Add-Type -AssemblyName System.Drawing
+          $sizes = @(44, 50, 150)
+          foreach ($sz in $sizes) {
+              $bmp = New-Object System.Drawing.Bitmap $sz, $sz
+              $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+              $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(16, 185, 129))
+              $gfx.FillRectangle($brush, 0, 0, $sz, $sz)
+              
+              if ($sz -eq 44) { $bmp.Save("msix_layout\Assets\Square44x44Logo.png", [System.Drawing.Imaging.ImageFormat]::Png) }
+              if ($sz -eq 50) { $bmp.Save("msix_layout\Assets\StoreLogo.png", [System.Drawing.Imaging.ImageFormat]::Png) }
+              if ($sz -eq 150) { $bmp.Save("msix_layout\Assets\Square150x150Logo.png", [System.Drawing.Imaging.ImageFormat]::Png) }
+              
+              $gfx.Dispose()
+              $bmp.Dispose()
+          }
 
-          [Run]
-          Filename: "{app}\app.exe"; Description: "Launch Aadi Vault"; Flags: nowait postinstall skipifsilent
+      - name: Generate AppxManifest.xml
+        shell: pwsh
+        run: |
+          $manifest = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+                   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+                   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+            <Identity Name="$($env:PC_IDENTITY_NAME)"
+                      Publisher="$($env:PC_PUBLISHER_ID)"
+                      Version="1.0.0.0"
+                      ProcessorArchitecture="x64" />
+            <Properties>
+              <DisplayName>Aadi-vault</DisplayName>
+              <PublisherDisplayName>$($env:PC_PUBLISHER_DISPLAY_NAME)</PublisherDisplayName>
+              <Logo>Assets\StoreLogo.png</Logo>
+            </Properties>
+            <Dependencies>
+              <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+            </Dependencies>
+            <Applications>
+              <Application Id="App" Executable="AadiVault.exe" EntryPoint="Windows.FullTrustApplication">
+                <uap:VisualElements DisplayName="Aadi-vault"
+                                    Description="Secure File Encryption Vault"
+                                    BackgroundColor="transparent"
+                                    Square150x150Logo="Assets\Square150x150Logo.png"
+                                    Square44x44Logo="Assets\Square44x44Logo.png">
+                </uap:VisualElements>
+              </Application>
+            </Applications>
+            <Capabilities>
+              <rescap:Capability Name="runFullTrust" />
+            </Capabilities>
+          </Package>
           "@
-          Set-Content -Path installer.iss -Value $iss
+          Set-Content -Path "msix_layout\AppxManifest.xml" -Value $manifest
 
-      - name: Compile Inno Setup Installer
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
-
-      - name: Generate Certificate and Digitally Sign Installer
+      - name: Pack and Sign MSIX
         shell: pwsh
         run: |
-          # Create SHA256 Code Signing Certificate matching Publisher
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Aditya Rai (kyxgo)" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
+          $makeappx = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+
+          # 1. Create MSIX Package
+          & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /nv
+
+          # 2. Generate matching certificate and sign
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "$($env:PC_PUBLISHER_ID)" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
           $pwd = ConvertTo-SecureString -String "KyxgoVault2026" -Force -AsPlainText
           Export-PfxCertificate -Cert $cert -FilePath "signer.pfx" -Password $pwd
-          
-          # Find official Windows SignTool and Sign the Executable
-          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
-          if ($signtool) {
-              & $signtool sign /f "signer.pfx" /p "KyxgoVault2026" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "public\AadiVault.exe"
-          }
+          & $signtool sign /f "signer.pfx" /p "KyxgoVault2026" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "public\AadiVault.msix"
 
       - name: Create Index HTML for Auto-Download
         shell: pwsh
@@ -126,16 +154,22 @@ jobs:
           <!DOCTYPE html>
           <html>
           <head>
-            <meta http-equiv="refresh" content="0; url=AadiVault.exe" />
-            <title>Downloading Aadi Vault...</title>
+            <meta http-equiv="refresh" content="0; url=AadiVault.msix" />
+            <title>Downloading Aadi Vault MSIX...</title>
           </head>
           <body>
-            <h2>Downloading Aadi Vault...</h2>
-            <p>If download doesn't start, <a href="AadiVault.exe">click here</a>.</p>
+            <h2>Downloading Aadi Vault Package (.msix)...</h2>
+            <p>If download doesn't start automatically, <a href="AadiVault.msix">click here to download</a>.</p>
           </body>
           </html>
           "@
           Set-Content -Path "public\index.html" -Value $html
+
+      - name: Upload GitHub Actions Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AadiVault-MSIX-Package
+          path: public\AadiVault.msix
 
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
