@@ -16,11 +16,6 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
-env:
-  PC_IDENTITY_NAME: "AdityaRaikyxgo.AadiVaultprime"
-  PC_PUBLISHER_ID: "CN=C916BD4F-DEA6-4223-BE96-9AB236F7A022"
-  PC_PUBLISHER_DISPLAY_NAME: "Aditya Rai (kyxgo)"
-
 jobs:
   build-and-deploy:
     environment:
@@ -68,7 +63,7 @@ jobs:
 
           Invoke-Expression $cmd
 
-      - name: Prepare MSIX Package Directory
+      - name: Create Package Layout and Assets
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path msix_layout
@@ -78,72 +73,77 @@ jobs:
           Copy-Item -Path "dist\app.exe" -Destination "msix_layout\AadiVault.exe"
 
           Add-Type -AssemblyName System.Drawing
-          $sizes = @(44, 50, 150)
-          foreach ($sz in $sizes) {
-              $bmp = New-Object System.Drawing.Bitmap $sz, $sz
+          $assetConfigs = @(
+              @{ Name = "Square44x44Logo.png"; W = 44; H = 44 },
+              @{ Name = "Square150x150Logo.png"; W = 150; H = 150 },
+              @{ Name = "StoreLogo.png"; W = 50; H = 50 }
+          )
+
+          foreach ($cfg in $assetConfigs) {
+              $bmp = New-Object System.Drawing.Bitmap $cfg.W, $cfg.H
               $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-              $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(16, 185, 129))
-              $gfx.FillRectangle($brush, 0, 0, $sz, $sz)
-              
-              if ($sz -eq 44) { $bmp.Save("msix_layout\Assets\Square44x44Logo.png", [System.Drawing.Imaging.ImageFormat]::Png) }
-              if ($sz -eq 50) { $bmp.Save("msix_layout\Assets\StoreLogo.png", [System.Drawing.Imaging.ImageFormat]::Png) }
-              if ($sz -eq 150) { $bmp.Save("msix_layout\Assets\Square150x150Logo.png", [System.Drawing.Imaging.ImageFormat]::Png) }
-              
+              $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(24, 24, 27))
+              $gfx.FillRectangle($brush, 0, 0, $cfg.W, $cfg.H)
+              $dest = Join-Path "msix_layout\Assets" $cfg.Name
+              $bmp.Save($dest, [System.Drawing.Imaging.ImageFormat]::Png)
               $gfx.Dispose()
               $bmp.Dispose()
           }
 
-      - name: Generate AppxManifest.xml
+      - name: Write Validated AppxManifest
         shell: pwsh
         run: |
-          $manifest = @"
-          <?xml version="1.0" encoding="utf-8"?>
-          <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-                   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-                   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
-            <Identity Name="$($env:PC_IDENTITY_NAME)"
-                      Publisher="$($env:PC_PUBLISHER_ID)"
-                      Version="1.0.0.0"
-                      ProcessorArchitecture="x64" />
-            <Properties>
-              <DisplayName>Aadi-vault</DisplayName>
-              <PublisherDisplayName>$($env:PC_PUBLISHER_DISPLAY_NAME)</PublisherDisplayName>
-              <Logo>Assets\StoreLogo.png</Logo>
-            </Properties>
-            <Dependencies>
-              <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
-            </Dependencies>
-            <Applications>
-              <Application Id="App" Executable="AadiVault.exe" EntryPoint="Windows.FullTrustApplication">
-                <uap:VisualElements DisplayName="Aadi-vault"
-                                    Description="Aadi-vault"
-                                    BackgroundColor="transparent"
-                                    Square150x150Logo="Assets\Square150x150Logo.png"
-                                    Square44x44Logo="Assets\Square44x44Logo.png">
-                </uap:VisualElements>
-              </Application>
-            </Applications>
-            <Capabilities>
-              <rescap:Capability Name="runFullTrust" />
-            </Capabilities>
-          </Package>
-          "@
-          Set-Content -Path "msix_layout\AppxManifest.xml" -Value $manifest
+          $manifestContent = @'
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+  <Identity Name="AdityaRaikyxgo.AadiVaultprime"
+            Publisher="CN=C916BD4F-DEA6-4223-BE96-9AB236F7A022"
+            Version="1.0.0.0"
+            ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Aadi-vault</DisplayName>
+    <PublisherDisplayName>Aditya Rai (kyxgo)</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+  <Applications>
+    <Application Id="App" Executable="AadiVault.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Aadi-vault"
+                          Description="Aadi-vault"
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png">
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
+'@
+          [System.IO.File]::WriteAllText("$PWD\msix_layout\AppxManifest.xml", $manifestContent, [System.Text.Encoding]::UTF8)
 
-      - name: Pack and Sign MSIX
+      - name: Pack and Sign Package
         shell: pwsh
         run: |
           $makeappx = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
           $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
 
-          & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /nv
+          & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /o
 
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "$($env:PC_PUBLISHER_ID)" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=C916BD4F-DEA6-4223-BE96-9AB236F7A022" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
           $pwd = ConvertTo-SecureString -String "KyxgoVault2026" -Force -AsPlainText
           Export-PfxCertificate -Cert $cert -FilePath "signer.pfx" -Password $pwd
           & $signtool sign /f "signer.pfx" /p "KyxgoVault2026" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "public\AadiVault.msix"
 
-      - name: Create Index HTML for Auto-Download
+      - name: Generate Auto-Download Page
         shell: pwsh
         run: |
           $html = @"
@@ -178,3 +178,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        
