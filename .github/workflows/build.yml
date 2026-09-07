@@ -1,4 +1,4 @@
-name: Build, Sign and Deploy AadiTechVault MSIX
+name: Build, Sign and Deploy Aadi-vault MSIX
 
 on:
   push:
@@ -17,9 +17,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # 👉 YAHAN APNI PARTNER CENTER KI DETAILS REPLACE KARO:
-  PC_IDENTITY_NAME: "Aadi-vault"
-  PC_PUBLISHER_ID: "CN=Aditya Rai (kyxgo)"
+  PC_IDENTITY_NAME: "AdityaRaikyxgo.AadiVaultprime"
+  PC_PUBLISHER_ID: "CN=C916BD4F-DEA6-4223-BE96-9AB236F7A022"
   PC_PUBLISHER_DISPLAY_NAME: "Aditya Rai (kyxgo)"
 
 jobs:
@@ -78,7 +77,6 @@ jobs:
 
           Copy-Item -Path "dist\app.exe" -Destination "msix_layout\AadiVault.exe"
 
-          # Basic PNG generator for MSIX manifest compliance if images don't exist
           Add-Type -AssemblyName System.Drawing
           $sizes = @(44, 50, 150)
           foreach ($sz in $sizes) {
@@ -118,7 +116,7 @@ jobs:
             <Applications>
               <Application Id="App" Executable="AadiVault.exe" EntryPoint="Windows.FullTrustApplication">
                 <uap:VisualElements DisplayName="Aadi-vault"
-                                    Description="Secure File Encryption Vault"
+                                    Description="Aadi-vault"
                                     BackgroundColor="transparent"
                                     Square150x150Logo="Assets\Square150x150Logo.png"
                                     Square44x44Logo="Assets\Square44x44Logo.png">
@@ -138,10 +136,8 @@ jobs:
           $makeappx = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
           $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
 
-          # 1. Create MSIX Package
           & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /nv
 
-          # 2. Generate matching certificate and sign
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "$($env:PC_PUBLISHER_ID)" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
           $pwd = ConvertTo-SecureString -String "KyxgoVault2026" -Force -AsPlainText
           Export-PfxCertificate -Cert $cert -FilePath "signer.pfx" -Password $pwd
@@ -155,10 +151,10 @@ jobs:
           <html>
           <head>
             <meta http-equiv="refresh" content="0; url=AadiVault.msix" />
-            <title>Downloading Aadi Vault MSIX...</title>
+            <title>Downloading Aadi-vault...</title>
           </head>
           <body>
-            <h2>Downloading Aadi Vault Package (.msix)...</h2>
+            <h2>Downloading Aadi-vault Package (.msix)...</h2>
             <p>If download doesn't start automatically, <a href="AadiVault.msix">click here to download</a>.</p>
           </body>
           </html>
