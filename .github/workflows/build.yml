@@ -37,7 +37,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller pycryptodome flask
 
-      - name: Build Windows Executable
+      - name: Build Executable
         shell: pwsh
         run: |
           $addTemplateArg = ""
@@ -63,37 +63,41 @@ jobs:
 
           Invoke-Expression $cmd
 
-      - name: Create Package Layout and Assets
+      - name: Assemble MSIX Package Directory
         shell: pwsh
         run: |
+          # 1. Directories Setup
           New-Item -ItemType Directory -Force -Path msix_layout
           New-Item -ItemType Directory -Force -Path msix_layout\Assets
           New-Item -ItemType Directory -Force -Path public
 
+          # 2. Copy Executable
           Copy-Item -Path "dist\app.exe" -Destination "msix_layout\AadiVault.exe"
 
+          # 3. Create Valid Bitmaps with all scale variations required by Store
           Add-Type -AssemblyName System.Drawing
-          $assetConfigs = @(
+          $assets = @(
               @{ Name = "Square44x44Logo.png"; W = 44; H = 44 },
+              @{ Name = "Square44x44Logo.targetsize-44.png"; W = 44; H = 44 },
               @{ Name = "Square150x150Logo.png"; W = 150; H = 150 },
-              @{ Name = "StoreLogo.png"; W = 50; H = 50 }
+              @{ Name = "Square150x150Logo.scale-100.png"; W = 150; H = 150 },
+              @{ Name = "StoreLogo.png"; W = 50; H = 50 },
+              @{ Name = "StoreLogo.scale-100.png"; W = 50; H = 50 }
           )
 
-          foreach ($cfg in $assetConfigs) {
-              $bmp = New-Object System.Drawing.Bitmap $cfg.W, $cfg.H
+          foreach ($item in $assets) {
+              $bmp = New-Object System.Drawing.Bitmap $item.W, $item.H
               $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-              $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(24, 24, 27))
-              $gfx.FillRectangle($brush, 0, 0, $cfg.W, $cfg.H)
-              $dest = Join-Path "msix_layout\Assets" $cfg.Name
-              $bmp.Save($dest, [System.Drawing.Imaging.ImageFormat]::Png)
+              $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(30, 41, 59))
+              $gfx.FillRectangle($brush, 0, 0, $item.W, $item.H)
+              $filePath = Join-Path "msix_layout\Assets" $item.Name
+              $bmp.Save($filePath, [System.Drawing.Imaging.ImageFormat]::Png)
               $gfx.Dispose()
               $bmp.Dispose()
           }
 
-      - name: Write Validated AppxManifest
-        shell: pwsh
-        run: |
-          $manifestContent = @'
+          # 4. Write AppxManifest directly with exact UTF-8 (No BOM issues)
+          $xml = @"
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
@@ -116,7 +120,7 @@ jobs:
   <Applications>
     <Application Id="App" Executable="AadiVault.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements DisplayName="Aadi-vault"
-                          Description="Aadi-vault"
+                          Description="Aadi-vault Application"
                           BackgroundColor="transparent"
                           Square150x150Logo="Assets\Square150x150Logo.png"
                           Square44x44Logo="Assets\Square44x44Logo.png">
@@ -127,23 +131,29 @@ jobs:
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
 </Package>
-'@
-          [System.IO.File]::WriteAllText("$PWD\msix_layout\AppxManifest.xml", $manifestContent, [System.Text.Encoding]::UTF8)
+"@
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText("$PWD\msix_layout\AppxManifest.xml", $xml, $utf8)
 
-      - name: Pack and Sign Package
+      - name: Compile and Sign MSIX Package
         shell: pwsh
         run: |
-          $makeappx = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
-          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          $kitsPath = "C:\Program Files (x86)\Windows Kits\10\bin"
+          $makeappx = (Get-ChildItem -Path $kitsPath -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          $signtool = (Get-ChildItem -Path $kitsPath -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
 
-          & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /o
+          # Pack MSIX
+          & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /o /v
 
+          # Generate certificate exactly matching the Publisher CN
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=C916BD4F-DEA6-4223-BE96-9AB236F7A022" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
           $pwd = ConvertTo-SecureString -String "KyxgoVault2026" -Force -AsPlainText
           Export-PfxCertificate -Cert $cert -FilePath "signer.pfx" -Password $pwd
+          
+          # Sign the MSIX Package
           & $signtool sign /f "signer.pfx" /p "KyxgoVault2026" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "public\AadiVault.msix"
 
-      - name: Generate Auto-Download Page
+      - name: Prepare Download Webpage
         shell: pwsh
         run: |
           $html = @"
@@ -161,13 +171,13 @@ jobs:
           "@
           Set-Content -Path "public\index.html" -Value $html
 
-      - name: Upload GitHub Actions Artifact
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AadiVault-MSIX-Package
           path: public\AadiVault.msix
 
-      - name: Setup GitHub Pages
+      - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages Artifact
