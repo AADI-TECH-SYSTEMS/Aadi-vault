@@ -40,11 +40,30 @@ jobs:
       - name: Build Executable
         shell: pwsh
         run: |
-          $addTemplate = ""
-          if (Test-Path "templates") { $addTemplate = '--add-data "templates;templates"' }
-          $icon = ""
-          if (Test-Path "icon.ico") { $icon = '--icon="icon.ico"' }
-          pyinstaller --noconfirm --onefile --windowed $icon --collect-all Crypto --collect-all flask --hidden-import=Crypto --hidden-import=Crypto.Cipher.AES --hidden-import=Crypto.Random --hidden-import=Crypto.Util.Padding $addTemplate --name app app.py
+          $pyArgs = @(
+              "--noconfirm",
+              "--onefile",
+              "--windowed",
+              "--name", "app",
+              "--collect-all", "Crypto",
+              "--collect-all", "flask",
+              "--hidden-import=Crypto",
+              "--hidden-import=Crypto.Cipher.AES",
+              "--hidden-import=Crypto.Random",
+              "--hidden-import=Crypto.Util.Padding"
+          )
+
+          if (Test-Path "icon.ico") {
+              $pyArgs += "--icon=icon.ico"
+          }
+
+          if (Test-Path "templates") {
+              $pyArgs += "--add-data=templates;templates"
+          }
+
+          $pyArgs += "app.py"
+
+          & pyinstaller $pyArgs
 
       - name: Prepare Layout and Assets
         shell: pwsh
