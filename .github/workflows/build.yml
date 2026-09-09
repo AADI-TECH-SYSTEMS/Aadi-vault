@@ -74,22 +74,21 @@ jobs:
 
           Add-Type -AssemblyName System.Drawing
 
-          # Source logo path check
           $logoPath = "$PWD\logo.png"
           if (-not (Test-Path $logoPath)) {
-              Write-Error "logo.png file root me nahi mili!"
+              Write-Error "logo.png file root directory me nahi mili!"
               exit 1
           }
 
           $srcImg = [System.Drawing.Image]::FromFile($logoPath)
 
-          # Microsoft Store required square & tile targets
           $files = @(
               @{ Name = "Square44x44Logo.png"; W = 44; H = 44 },
               @{ Name = "Square44x44Logo.targetsize-44.png"; W = 44; H = 44 },
               @{ Name = "Square150x150Logo.png"; W = 150; H = 150 },
               @{ Name = "Square150x150Logo.scale-100.png"; W = 150; H = 150 },
               @{ Name = "Wide310x150Logo.png"; W = 310; H = 150 },
+              @{ Name = "SplashScreen.png"; W = 620; H = 300 },
               @{ Name = "StoreLogo.png"; W = 50; H = 50 },
               @{ Name = "StoreLogo.scale-100.png"; W = 50; H = 50 }
           )
@@ -102,7 +101,6 @@ jobs:
               $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
               $g.Clear([System.Drawing.Color]::FromArgb(11, 14, 20))
 
-              # Aspect ratio maintain karke center fit karna
               $scale = [Math]::Min($f.W / $srcImg.Width, $f.H / $srcImg.Height)
               $newW = [int]($srcImg.Width * $scale)
               $newH = [int]($srcImg.Height * $scale)
@@ -129,7 +127,7 @@ jobs:
           '         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">' + "`r`n" +
           '  <Identity Name="AdityaRaikyxgo.AadiVaultprime"' + "`r`n" +
           '            Publisher="CN=C9168D4F-DEA6-4223-BE96-9AB236F7A022"' + "`r`n" +
-          '            Version="1.0.0.0"' + "`r`n" +
+          '            Version="1.0.1.0"' + "`r`n" +
           '            ProcessorArchitecture="x64" />' + "`r`n" +
           '  <Properties>' + "`r`n" +
           '    <DisplayName>Aadi-vault</DisplayName>' + "`r`n" +
@@ -146,10 +144,11 @@ jobs:
           '    <Application Id="App" Executable="AadiVault.exe" EntryPoint="Windows.FullTrustApplication">' + "`r`n" +
           '      <uap:VisualElements DisplayName="Aadi-vault"' + "`r`n" +
           '                          Description="Aadi-vault"' + "`r`n" +
-          '                          BackgroundColor="transparent"' + "`r`n" +
+          '                          BackgroundColor="#0b0e14"' + "`r`n" +
           '                          Square150x150Logo="Assets\Square150x150Logo.png"' + "`r`n" +
           '                          Square44x44Logo="Assets\Square44x44Logo.png">' + "`r`n" +
           '        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />' + "`r`n" +
+          '        <uap:SplashScreen Image="Assets\SplashScreen.png" />' + "`r`n" +
           '      </uap:VisualElements>' + "`r`n" +
           '    </Application>' + "`r`n" +
           '  </Applications>' + "`r`n" +
@@ -171,6 +170,7 @@ jobs:
 
           & $makepri createconfig /cf "priconfig.xml" /dq "en-US" /pv "10.0.0" /o
           & $makepri new /pr "msix_layout" /cf "priconfig.xml" /of "msix_layout\resources.pri" /o
+
           & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /o
 
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=C9168D4F-DEA6-4223-BE96-9AB236F7A022" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
