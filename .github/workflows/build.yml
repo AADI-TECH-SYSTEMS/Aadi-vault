@@ -65,20 +65,31 @@ jobs:
 
           & pyinstaller $pyArgs
 
-      - name: Auto Generate Package Assets and Layout
+      - name: Auto Generate Package Assets from logo.png
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path msix_layout\Assets
           New-Item -ItemType Directory -Force -Path public
           Copy-Item -Path "dist\app.exe" -Destination "msix_layout\AadiVault.exe"
 
-          # GitHub cloud server khud Microsoft Store ke liye required PNGs create karega
           Add-Type -AssemblyName System.Drawing
+
+          # Source logo path check
+          $logoPath = "$PWD\logo.png"
+          if (-not (Test-Path $logoPath)) {
+              Write-Error "logo.png file root me nahi mili!"
+              exit 1
+          }
+
+          $srcImg = [System.Drawing.Image]::FromFile($logoPath)
+
+          # Microsoft Store required square & tile targets
           $files = @(
               @{ Name = "Square44x44Logo.png"; W = 44; H = 44 },
               @{ Name = "Square44x44Logo.targetsize-44.png"; W = 44; H = 44 },
               @{ Name = "Square150x150Logo.png"; W = 150; H = 150 },
               @{ Name = "Square150x150Logo.scale-100.png"; W = 150; H = 150 },
+              @{ Name = "Wide310x150Logo.png"; W = 310; H = 150 },
               @{ Name = "StoreLogo.png"; W = 50; H = 50 },
               @{ Name = "StoreLogo.scale-100.png"; W = 50; H = 50 }
           )
@@ -86,13 +97,28 @@ jobs:
           foreach ($f in $files) {
               $bmp = New-Object System.Drawing.Bitmap $f.W, $f.H
               $g = [System.Drawing.Graphics]::FromImage($bmp)
-              $b = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(30, 41, 59))
-              $g.FillRectangle($b, 0, 0, $f.W, $f.H)
+              $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+              $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+              $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+              $g.Clear([System.Drawing.Color]::FromArgb(11, 14, 20))
+
+              # Aspect ratio maintain karke center fit karna
+              $scale = [Math]::Min($f.W / $srcImg.Width, $f.H / $srcImg.Height)
+              $newW = [int]($srcImg.Width * $scale)
+              $newH = [int]($srcImg.Height * $scale)
+              $posX = [int](($f.W - $newW) / 2)
+              $posY = [int](($f.H - $newH) / 2)
+
+              $g.DrawImage($srcImg, $posX, $posY, $newW, $newH)
               $outPath = Join-Path "msix_layout\Assets" $f.Name
               $bmp.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
+              
               $g.Dispose()
               $bmp.Dispose()
+              Write-Host "Generated tile asset: $($f.Name) ($($f.W)x$($f.H))"
           }
+
+          $srcImg.Dispose()
 
       - name: Write AppxManifest
         shell: pwsh
@@ -123,6 +149,7 @@ jobs:
           '                          BackgroundColor="transparent"' + "`r`n" +
           '                          Square150x150Logo="Assets\Square150x150Logo.png"' + "`r`n" +
           '                          Square44x44Logo="Assets\Square44x44Logo.png">' + "`r`n" +
+          '        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />' + "`r`n" +
           '      </uap:VisualElements>' + "`r`n" +
           '    </Application>' + "`r`n" +
           '  </Applications>' + "`r`n" +
@@ -142,14 +169,10 @@ jobs:
           $makeappx = (Get-ChildItem -Path $tools -Filter "makeappx.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
           $signtool = (Get-ChildItem -Path $tools -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
 
-          # 1. PRI Index banata hai taaki language/images missing na bataye
           & $makepri createconfig /cf "priconfig.xml" /dq "en-US" /pv "10.0.0" /o
           & $makepri new /pr "msix_layout" /cf "priconfig.xml" /of "msix_layout\resources.pri" /o
-
-          # 2. Package assemble karta hai
           & $makeappx pack /d msix_layout /p "public\AadiVault.msix" /o
 
-          # 3. Exactly match Publisher ID se digital sign karta hai
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=C9168D4F-DEA6-4223-BE96-9AB236F7A022" -CertStoreLocation Cert:\CurrentUser\My -HashAlgorithm SHA256
           $pass = ConvertTo-SecureString -String "KyxgoVault2026" -Force -AsPlainText
           Export-PfxCertificate -Cert $cert -FilePath "cert.pfx" -Password $pass
@@ -179,3 +202,4 @@ jobs:
       - name: Deploy Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        
